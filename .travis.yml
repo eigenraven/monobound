@@ -1,0 +1,20 @@
+sudo: false
+language: d
+addons:
+ apt:
+  sources:
+   - mono
+  packages:
+   - cli-common-dev
+   - libmono-2.0-1
+   - libmono-2.0-dev
+   - mono-mcs
+d:
+ - dmd
+ - ldc
+env:
+ - DUBCONF=mono-dynamic
+ - DUBCONF=mono-static-test
+script:
+ - dub upgrade
+ - dub test --compiler=${DC} --config=${DUBCONF}

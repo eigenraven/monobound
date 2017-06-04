@@ -1,0 +1,44 @@
+{
+	"name": "monod",
+	"authors": [
+		"Jakub Szewczyk"
+	],
+	"dependencies": {
+		"derelict-mono": "~>1.1.0"
+	},
+	"description": "A Mono<->D bridge for easy interfacing of native code to the CLR ecosystem.",
+	"copyright": "Copyright © 2017, Jakub Szewczyk",
+	"license": "BSL-1.0",
+	"configurations": [
+		{
+			"name": "mono-dynamic",
+			"subConfigurations": {
+				"derelict-mono": "derelict-mono-dynamic"
+			},
+			"versions": [
+				"Mono_Dynamic"
+			]
+		},
+		{
+			"name": "mono-static",
+			"subConfigurations": {
+				"derelict-mono": "derelict-mono-static"
+			},
+			"versions": [
+				"Mono_Static"
+			]
+		},
+		{
+			"name": "mono-static-test",
+			"subConfigurations": {
+				"derelict-mono": "derelict-mono-static"
+			},
+			"versions": [
+				"Mono_Static"
+			],
+			"libs":[
+				"mono-2.0"
+			]
+		}
+	]
+}
