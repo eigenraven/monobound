@@ -1,11 +1,6 @@
-sudo: false
+dist: trusty
+sudo: required
 language: d
-addons:
- apt:
-  sources:
-   - mono
-  packages:
-   - mono-devel
 d:
  - dmd
  - ldc
@@ -13,5 +8,9 @@ env:
  - DUBCONF=mono-dynamic
  - DUBCONF=mono-static-test
 script:
+ - sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF
+ - echo "deb http://download.mono-project.com/repo/ubuntu trusty main" | sudo tee /etc/apt/sources.list.d/mono-official.list
+ - sudo apt-get update
+ - sudo apt-get install -y -qq mono-devel mono-dbg
  - dub upgrade
  - dub test --compiler=${DC} --config=${DUBCONF}
