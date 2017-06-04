@@ -5,10 +5,7 @@ addons:
   sources:
    - mono
   packages:
-   - cli-common-dev
-   - libmono-2.0-1
-   - libmono-2.0-dev
-   - mono-mcs
+   - mono-devel
 d:
  - dmd
  - ldc
