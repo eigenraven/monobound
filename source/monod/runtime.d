@@ -30,11 +30,18 @@ module monod.runtime;
 
 import derelict.mono.mono;
 import std.string, std.array, std.algorithm;
-import core.stdc.string;
+import monod.utils;
 
 /// Interface to the Mono runtime
 struct Mono
 {
+	@disable this();
+	@disable this(this);
+
+	private static
+	{
+		MonoThread* mThread;
+	}
 	private __gshared
 	{
 		bool initialised;
@@ -85,6 +92,11 @@ static:
 			DerelictMono.load;
 		}
 
+		version (Posix)
+		{
+			mono_set_signal_chaining(1);
+		}
+
 		if (customMonoConfig.length)
 			mono_config_parse(customMonoConfig.toStringz);
 		else
@@ -105,10 +117,36 @@ static:
 		{
 			mono_set_dirs(aDir, cDir);
 		}
-		char* monover = mono_get_runtime_build_info();
-		scope (exit)
-			mono_free(monover);
-		mVersion = monover[0 .. strlen(monover)].idup;
+		mVersion = mono_get_runtime_build_info().monoOwnedCStrToD();
+		mThread = mono_thread_attach(mDomain);
+	}
+
+	/// Attaches the current thread to the Mono runtime, required for D multithreaded apps interfacing with Mono.
+	void attachThisThread() nothrow @nogc @trusted
+	{
+		mThread = mono_thread_attach(mDomain);
+	}
+
+	/// Detaches the current thread from the Mono runtime.
+	void detachThisThread() nothrow @nogc @trusted
+	{
+		if (mThread !is null)
+		{
+			mono_thread_detach(mThread);
+			mThread = null;
+		}
+	}
+
+	/// Returns: the MonoDomain object used by the runtime.
+	MonoDomain* getDomain() nothrow @nogc @trusted
+	{
+		return mDomain;
+	}
+
+	/// Returns: the MonoThread object if the current thread is attached to the runtime.
+	MonoThread* getMonoThread() nothrow @nogc @trusted
+	{
+		return mThread;
 	}
 
 	/// Returns: a string identifying the Mono runtime version.
