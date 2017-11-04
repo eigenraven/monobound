@@ -26,11 +26,11 @@
  * ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-module monod.runtime;
+module monobound.runtime;
 
 import derelict.mono.mono;
-import std.string, std.array, std.algorithm;
-import monod.utils;
+import std.string, std.array, std.algorithm, std.traits;
+import monobound.utils;
 
 /// Interface to the Mono runtime
 struct Mono
@@ -154,6 +154,18 @@ static:
 	{
 		return mVersion;
 	}
+
+	/// Registers an internal function with the runtime, used by the bindings.
+	/// Does not use templates to lower the overhead on the compiler.
+	void addInternalCall(string name, const(void)* F) nothrow @nogc @trusted
+	in
+	{
+		assert(name.ptr[name.length] == '\0', "Internal call name must be a C-style string");
+	}
+	body
+	{
+		mono_add_internal_call(cast(const(char)*) name.ptr, F);
+	}
 }
 
 version (unittest)
@@ -161,10 +173,10 @@ version (unittest)
 	/// Initialises the runtime when doing unit tests.
 	shared static this()
 	{
+		import core.runtime;
 		import std.stdio : writefln;
-		import monod.runtime : Mono;
 
-		Mono.initialise("monod-testing", ["monod-testing", "--test", "--unittest"]);
+		Mono.initialise("monod-testing", Runtime.args);
 		writefln("Mono runtime version %s initialised.", Mono.getRuntimeVersionInfo());
 	}
 }

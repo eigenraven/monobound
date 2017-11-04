@@ -26,12 +26,12 @@
  * ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-module monod.assembly;
+module monobound.assembly;
 
 import derelict.mono.mono;
 import std.string, std.array, std.algorithm;
-import monod.utils;
-import monod.runtime;
+import monobound.utils;
+import monobound.runtime;
 import std.traits;
 
 /// Exception thrown in case of an error when loading an image or assembly.

@@ -26,7 +26,7 @@
  * ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-module monod.mgenerator;
+module monobound.mgenerator;
 
 import derelict.mono.mono;
 import std.string, std.array, std.algorithm;
@@ -34,8 +34,8 @@ import std.traits, std.meta, std.functional;
 import std.format, std.conv, std.stdio : writefln;
 import std.range, std.uni, std.utf, std.path;
 import std.file : write, isFile, isDir, exists, mkdir, mkdirRecurse, readText;
-import monod.utils;
-import monod.attributes;
+import monobound.utils;
+import monobound.attributes;
 
 /// Contains the generated code.
 struct GeneratedCode
@@ -67,6 +67,7 @@ struct GeneratedCode
 		foreach (i; 0 .. cscIndent)
 			csc ~= '\t';
 		csc ~= a;
+		csc ~= '\n';
 		if (indent > 0)
 		{
 			cscIndent += indent;
@@ -87,6 +88,7 @@ struct GeneratedCode
 		foreach (i; 0 .. dcIndent)
 			dc ~= '\t';
 		dc ~= a;
+		dc ~= '\n';
 		if (indent > 0)
 		{
 			dcIndent += indent;
@@ -112,6 +114,7 @@ private string camelDots(string dotted, bool initial = true)
 				result ~= toUpper(chr);
 			else
 				result ~= chr;
+			up = false;
 		}
 	}
 	return result;
@@ -129,6 +132,8 @@ private string camelDots(string dotted, bool initial = true)
  */
 GeneratedCode saveModuleToFile(alias M, bool autoBindAll = false)(string dRoot, string csRoot)
 {
+	dRoot ~= "/monobind";
+	csRoot ~= "/MonoBind";
 	immutable code = bindModule!(M, autoBindAll)();
 	if (!exists(dRoot) && isDir(buildNormalizedPath(dRoot, "..")))
 	{
@@ -155,13 +160,13 @@ GeneratedCode saveModuleToFile(alias M, bool autoBindAll = false)(string dRoot, 
 	if (!isDir(csFolder))
 		mkdirRecurse(csFolder);
 	bool doDWrite = true, doCSWrite = true;
-	if (isFile(dPath))
+	if (exists(dPath) && isFile(dPath))
 	{
 		string readcode = readText(dPath);
 		if (readcode == code.dc)
 			doDWrite = false;
 	}
-	if (isFile(csPath))
+	if (exists(dPath) && isFile(csPath))
 	{
 		string readcode = readText(csPath);
 		if (readcode == code.csc)
@@ -201,9 +206,9 @@ GeneratedCode bindModule(alias M, bool autoBindAll = false)()
 	GeneratedCode code;
 	code.moduleName = moduleName!M;
 	code.camelModuleName = camelDots(code.moduleName, true);
-	code.csc = CsPrelude.format(code.moduleName);
+	code.csc = CsPrelude.replace("@MOD@",code.moduleName).replace("@IDMOD@",code.camelModuleName);
 	code.cscIndent = 1;
-	code.dc = DPrelude.format(code.moduleName);
+	code.dc = DPrelude.replace("@MOD@",code.moduleName).replace("@IDMOD@",code.camelModuleName);
 	code.dcIndent = 1;
 
 	bindFreeMembers!(M, autoBindAll)(&code);
@@ -214,21 +219,20 @@ GeneratedCode bindModule(alias M, bool autoBindAll = false)()
 	return code;
 }
 
-private enum string DPrelude = `/// Automatically generated D->Mono bindings for module %1$s
-module monobind.%1$s;
-import monod.utils;
-import monod.runtime;
+private enum string DPrelude = `/// Automatically generated D->Mono bindings for module @MOD@
+module monobind.@IDMOD@;
+import monobound.utils;
+import monobound.runtime;
+static import @MOD@;
 
-/// Binds %1$s internal calls to the Mono runtime.
-void bindToMono_%2$s()
+/// Binds @MOD@ internal calls to the Mono runtime.
+void bindToMono_@IDMOD@(Mono* monoInstance)
 {
-	extern(C):
-	nothrow:
 `;
 private enum string DEpilogue = `
 }`;
 
-private enum string CsPrelude = `// Automatically generated D->Mono bindings for module %1$s
+private enum string CsPrelude = `// Automatically generated D->Mono bindings for module @MOD@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -243,18 +247,19 @@ private void bindFreeMembers(alias M, bool autoBindAll)(GeneratedCode* C)
 	C.cs("{", 1);
 	scope (exit)
 		C.cs("}", -1);
-	foreach (sym; __traits(allMembers, M))
+	foreach (symnm; __traits(allMembers, M))
 	{
+		alias sym = Alias!(__traits(getMember, M, symnm));
 		static if (is(typeof(sym)) && !isAggregateType!(typeof(sym)))
 		{
-			alias SymT = typeof(sym);
 			alias UDAs = getUDAs!(sym, MonoBind);
-			static assert(UDAs.length < 2, sym.stringof ~ " cannot have >1 MonoBind attribute!");
+			static assert(UDAs.length < 2, sym ~ " cannot have >1 MonoBind attribute!");
 			static if (autoBindAll || UDAs.length == 1)
 			{
 				static if (isFunction!sym)
 				{
-					bindFunction!(sym)(C);
+					foreach(ovl; __traits(getOverloads, M, symnm))
+						bindFunction!(ovl)(C);
 				}
 			}
 		}
@@ -275,28 +280,79 @@ private void bindAggregates(alias M, bool autoBindAll)(GeneratedCode* C)
 private void bindFunction(alias F)(GeneratedCode* C)
 {
 	string CSReturn;
-	//string CSMName;
+	string CSMName;
 	string CSName;
 	string[] CSArgs;
+	string[] RTArgs;
 
 	CSName = __traits(identifier, F);
-	//CSMName = F.mangleof;
+	CSMName = "monobound" ~ F.mangleof;
+	alias RetT = ReturnType!F;
+	CSReturn = monoTypeOf!(RetT, TypeContext.FunctionList);
 	alias PNames = ParameterIdentifierTuple!F;
 	foreach (i, arg; Parameters!F)
 	{
-		CSArgs ~= monoTypeOf!arg ~ " " ~ PNames[i];
+		CSArgs ~= monoTypeOf!(arg, TypeContext.FunctionList) ~ " " ~ PNames[i];
+		RTArgs ~= monoRtTypeOf!(arg, TypeContext.FunctionList) ~ " " ~ PNames[i];
 	}
 
-	C.cs("[MethodImplAttribute(MethodImplOptions.InternalCall)]");
-	C.cs("extern static %s %s (%-(%s, %));".format(CSReturn, CSName, CSArgs));
+	// C# stub
 
+	C.cs("[MethodImplAttribute(MethodImplOptions.InternalCall)]");
+	C.cs("private extern static %s %s (%-(%s, %));".format(CSReturn, CSMName, CSArgs));
+
+	C.cs("static %s %s (%-(%s, %))".format(CSReturn, CSName, CSArgs));
+	C.cs("{", 1);
+		C.cs("%s%s(%-(%s, %));".format(is(RetT == void) ? "" : "return ", CSMName, only(PNames)));
+	C.cs("}", -1);
+
+	// D function
+	string RTRet = monoRtTypeOf!(RetT, TypeContext.FunctionList);
+	string FQN = fullyQualifiedName!F;
+	C.d("extern(C) %s %s(%-(%s, %)) nothrow".format(RTRet, CSMName, RTArgs));
+	C.d("{try{", 2);
+	C.d("%s%s(%-(%s, %));".format(is(RetT == void) ? "" : "return ", FQN, only(PNames)));
+	C.d("}", -1);
+	C.d("catch(Throwable t)");
+	C.d("{", 1);
+	// TODO:Exception translation
+	if(!is(RetT==void))
+	{
+		C.d("return " ~ RTRet ~ ".init;");
+	}
+	C.d("}}", -2);
+	C.d(`monoInstance.addInternalCall("%s", &%s);`.format(CSMName, CSMName));
 }
 
-private string monoTypeOf(T, bool alreadyReffed = false)()
+private template RenamedIdOf(T)
+{
+	private enum string xid = __traits(identifier, T);
+	private enum string rid = getUDAs!(T, MonoBind).length > 0 ? getUDAs!(T, MonoBind)[0].rename
+			: "";
+	enum string RenamedIdOf = rid.length ? rid : xid;
+}
+
+enum TypeContext
+{
+	FunctionList,
+	Member
+}
+
+private string monoTypeOf(T, TypeContext tc, bool alreadyReffed = false)()
 {
 	static if (is(T == bool))
 	{
-		return "bool";
+		final switch(tc) with(TypeContext)
+		{
+			case FunctionList:
+				return "bool";
+			case Member:
+				return "byte";
+		}
+	}
+	else static if (is(T == void))
+	{
+		return "void";
 	}
 	else static if (is(T == enum))
 	{
@@ -344,19 +400,102 @@ private string monoTypeOf(T, bool alreadyReffed = false)()
 	}
 	else static if (is(T : U[], U))
 	{
-		return monoTypeOf!(U, true) ~ "[]";
+		return monoTypeOf!(U, tc, true) ~ "[]";
 	}
 	else static if (is(T : U*, U))
 	{
-		return "ref " ~ monoTypeOf!(U, true);
+		return "ref " ~ monoTypeOf!(U, tc, true);
 	}
 	else static if (is(T == class))
 	{
-		return __traits(identifier, T);
+		return RenamedIdOf!T;
 	}
 	else static if (is(T == struct))
 	{
-		return __traits(identifier, T);
+		return RenamedIdOf!T;
+	}
+	else
+	{
+		static assert(0, "Unsupported type " ~ T.stringof);
+	}
+}
+
+// mono runtime (C-side) type mappings
+private string monoRtTypeOf(T, TypeContext tc, bool alreadyReffed = false)()
+{
+	static if (is(T == bool))
+	{
+		final switch(tc) with(TypeContext)
+		{
+			case FunctionList:
+				return "monoBoolF";
+			case Member:
+				return "monoBoolM";
+		}
+	}
+	else static if (is(T == void))
+	{
+		return "void";
+	}
+	else static if (is(T == enum))
+	{
+		return "int";
+	}
+	else static if (isIntegral!T)
+	{
+		static if (is(T == char))
+			return "byte";
+		else static if (is(T == wchar))
+			return "char";
+		else static if (is(T == dchar))
+			return "uint";
+		else static if (is(T == ubyte))
+			return "ubyte";
+		else static if (is(T == byte))
+			return "byte";
+		else static if (is(T == ushort))
+			return "ushort";
+		else static if (is(T == short))
+			return "short";
+		else static if (is(T == uint))
+			return "uint";
+		else static if (is(T == int))
+			return "int";
+		else static if (is(T == ulong))
+			return "ulong";
+		else static if (is(T == long))
+			return "long";
+		else
+			static assert(0, "Unsupported integral type " ~ T.stringof);
+	}
+	else static if (isFloatingPoint!T)
+	{
+		static if (is(T == float))
+			return "float";
+		else static if (is(T == double))
+			return "double";
+		else
+			static assert(0, "Unsupported floating point type " ~ T.stringof);
+	}
+	else static if (isSomeString!T)
+	{
+		return "MonoString*";
+	}
+	else static if (is(T : U[], U))
+	{
+		return "MonoArray*";
+	}
+	else static if (is(T : U*, U))
+	{
+		return "ref " ~ monoTypeOf!(U, tc, true);
+	}
+	else static if (is(T == class))
+	{
+		return "MonoObject*";
+	}
+	else static if (is(T == struct))
+	{
+		return "MonoObject*";
 	}
 	else
 	{

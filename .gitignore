@@ -1,5 +1,7 @@
 dub.selections.json
-monod-test*
+monobound-test*
+sample/monobound-sample
+sample/sample-gen
 # Created by https://www.gitignore.io/api/d,macos,linux,csharp,windows,monodevelop,visualstudio,visualstudiocode
 
 ### Csharp ###

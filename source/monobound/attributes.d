@@ -26,7 +26,7 @@
  * ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-module monod.attributes;
+module monobound.attributes;
 
 /// Marks a declaration to be exported to the Mono runtime.
 struct MonoBind

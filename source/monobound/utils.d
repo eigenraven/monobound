@@ -1,5 +1,5 @@
 /**
- * Collectively imports the MonoD library modules.
+ * Utilities for working with Mono's C API.
  * 
  * License:
  * 
@@ -26,11 +26,52 @@
  * ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-module monod;
+module monobound.utils;
 
-public
+import derelict.mono.mono;
+public import std.string;
+import core.stdc.string;
+
+/// Converts a Mono C string to a D string and frees the Mono object.
+string monoOwnedCStrToD(const(char)* str) nothrow @trusted
 {
-	import monod.utils;
-	import monod.runtime;
-	import monod.assembly;
+	if (str is null)
+		return "";
+	string S = str[0 .. strlen(str)].idup;
+	mono_free(cast(void*) str);
+	return S;
+}
+
+immutable(wchar)* toWstringz(wstring str) nothrow @safe
+{
+	if (str.length == 0)
+		return &"\0"w[0];
+	if (str[$ - 1] != '\0')
+		str ~= '\0';
+	return &str[0];
+}
+
+wstring fromWstringz(const(wchar)* str) nothrow @trusted
+{
+	size_t len;
+	for (; str[len] != '\0'; len++)
+		len++;
+	return cast(immutable) str[0 .. len];
+}
+
+/// The bool as it appears in function argument lists
+alias monoBoolF = short;
+/// The bool as it appears in structure definitions
+alias monoBoolM = int;
+
+/// Wrapper around a Mono pointer, frees it in the destructor.
+struct MonoPtr(T)
+{
+	@disable this(this);
+	T* ptr;
+	alias ptr this;
+	~this()
+	{
+		mono_free(cast(void*) ptr);
+	}
 }

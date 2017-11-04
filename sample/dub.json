@@ -1,0 +1,32 @@
+{
+	"name": "monobound-sample",
+	"targetType": "executable",
+	"authors": [
+		"Jakub Szewczyk"
+	],
+	"dependencies": {
+		"monobound": "*"
+	},
+	"description": "Sample app using MonoBounD",
+	"copyright": "Copyright © 2017, Jakub Szewczyk",
+	"license": "BSL-1.0",
+	"configurations": [
+		{
+			"name": "default",
+			"preGenerateCommands": [
+				"dub run -c generateBindings"
+			],
+			"sourcePaths": [
+				"source",
+				"bind-d"
+			]
+		},
+		{
+			"name": "generateBindings",
+			"versions": [
+				"GenerateBindings"
+			],
+			"targetName": "sample-gen"
+		}
+	]
+}
