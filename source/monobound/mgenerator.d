@@ -206,9 +206,9 @@ GeneratedCode bindModule(alias M, bool autoBindAll = false)()
 	GeneratedCode code;
 	code.moduleName = moduleName!M;
 	code.camelModuleName = camelDots(code.moduleName, true);
-	code.csc = CsPrelude.replace("@MOD@",code.moduleName).replace("@IDMOD@",code.camelModuleName);
+	code.csc = CsPrelude.replace("@MOD@", code.moduleName).replace("@IDMOD@", code.camelModuleName);
 	code.cscIndent = 1;
-	code.dc = DPrelude.replace("@MOD@",code.moduleName).replace("@IDMOD@",code.camelModuleName);
+	code.dc = DPrelude.replace("@MOD@", code.moduleName).replace("@IDMOD@", code.camelModuleName);
 	code.dcIndent = 1;
 
 	bindFreeMembers!(M, autoBindAll)(&code);
@@ -258,7 +258,7 @@ private void bindFreeMembers(alias M, bool autoBindAll)(GeneratedCode* C)
 			{
 				static if (isFunction!sym)
 				{
-					foreach(ovl; __traits(getOverloads, M, symnm))
+					foreach (ovl; __traits(getOverloads, M, symnm))
 						bindFunction!(ovl)(C);
 				}
 			}
@@ -285,15 +285,18 @@ private void bindFunction(alias F)(GeneratedCode* C)
 	string[] CSArgs;
 	string[] RTArgs;
 
-	CSName = __traits(identifier, F);
+	CSName = RenamedIdOf!F;
 	CSMName = "monobound" ~ F.mangleof;
 	alias RetT = ReturnType!F;
-	CSReturn = monoTypeOf!(RetT, TypeContext.FunctionList);
+	enum bool ReturnsValue = !is(RetT == void);
+	alias RetTi = MonoboundTypeInfo!(RetT, BoundTypeContext.FunctionList);
+	CSReturn = RetTi.csTypeName;
 	alias PNames = ParameterIdentifierTuple!F;
 	foreach (i, arg; Parameters!F)
 	{
-		CSArgs ~= monoTypeOf!(arg, TypeContext.FunctionList) ~ " " ~ PNames[i];
-		RTArgs ~= monoRtTypeOf!(arg, TypeContext.FunctionList) ~ " " ~ PNames[i];
+		alias Ti = MonoboundTypeInfo!(arg, BoundTypeContext.FunctionList);
+		CSArgs ~= Ti.csTypeName ~ " " ~ PNames[i];
+		RTArgs ~= Ti.drtTypeName ~ " " ~ PNames[i];
 	}
 
 	// C# stub
@@ -303,202 +306,72 @@ private void bindFunction(alias F)(GeneratedCode* C)
 
 	C.cs("static %s %s (%-(%s, %))".format(CSReturn, CSName, CSArgs));
 	C.cs("{", 1);
-		C.cs("%s%s(%-(%s, %));".format(is(RetT == void) ? "" : "return ", CSMName, only(PNames)));
+	C.cs("%s%s(%-(%s, %));".format(is(RetT == void) ? "" : "return ", CSMName, only(PNames)));
 	C.cs("}", -1);
 
 	// D function
-	string RTRet = monoRtTypeOf!(RetT, TypeContext.FunctionList);
+	string RTRet = RetTi.drtTypeName;
 	string FQN = fullyQualifiedName!F;
 	C.d("extern(C) %s %s(%-(%s, %)) nothrow".format(RTRet, CSMName, RTArgs));
 	C.d("{try{", 2);
-	C.d("%s%s(%-(%s, %));".format(is(RetT == void) ? "" : "return ", FQN, only(PNames)));
+	// parameter setup
+	string argsStr;
+	foreach (argi, argt; Parameters!F)
+	{
+		alias Ti = MonoboundTypeInfo!(argt, BoundTypeContext.FunctionList);
+		static if (Ti.isPrimitive)
+		{
+			argsStr ~= PNames[argi] ~ ", ";
+		}
+		else
+		{
+			argsStr ~= "MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).unwrapToD(%s), ".format(
+					fullyQualifiedName!argt, PNames[argi]);
+			C.d("MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).beginUse(monoInstance, %s);".format(
+					PNames[argi]));
+		}
+	}
+
+	// remove the last ", "
+	if (argsStr.length > 2)
+		argsStr = argsStr[0 .. $ - 2];
+
+	// call and return boxing
+	static if (ReturnsValue)
+	{
+		C.d("%s __monobound_retval = MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).wrapForMono(%s(%s));".format(
+				RetTi.drtTypeName, fullyQualifiedName!RetT, FQN, argsStr));
+	}
+	else
+	{
+		C.d("%s(%s);".format(FQN, argsStr));
+	}
+
+	// parameter destruction
+	foreach (argi, argt; Parameters!F)
+	{
+		alias Ti = MonoboundTypeInfo!(argt, BoundTypeContext.FunctionList);
+		static if (!Ti.isPrimitive)
+		{
+			C.d("MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).endUse(monoInstance, %s);".format(
+					PNames[argi]));
+		}
+	}
+
+	// actual return
+	static if (ReturnsValue)
+	{
+		C.d("return __monobound_retval;");
+	}
+
 	C.d("}", -1);
 	C.d("catch(Throwable t)");
 	C.d("{", 1);
 	// TODO:Exception translation
-	if(!is(RetT==void))
+	if (!is(RetT == void))
 	{
 		C.d("return " ~ RTRet ~ ".init;");
 	}
 	C.d("}}", -2);
 	C.d(`monoInstance.addInternalCall("%s", &%s);`.format(CSMName, CSMName));
-}
-
-private template RenamedIdOf(T)
-{
-	private enum string xid = __traits(identifier, T);
-	private enum string rid = getUDAs!(T, MonoBind).length > 0 ? getUDAs!(T, MonoBind)[0].rename
-			: "";
-	enum string RenamedIdOf = rid.length ? rid : xid;
-}
-
-enum TypeContext
-{
-	FunctionList,
-	Member
-}
-
-private string monoTypeOf(T, TypeContext tc, bool alreadyReffed = false)()
-{
-	static if (is(T == bool))
-	{
-		final switch(tc) with(TypeContext)
-		{
-			case FunctionList:
-				return "bool";
-			case Member:
-				return "byte";
-		}
-	}
-	else static if (is(T == void))
-	{
-		return "void";
-	}
-	else static if (is(T == enum))
-	{
-		return "int";
-	}
-	else static if (isIntegral!T)
-	{
-		static if (is(T == char))
-			return "byte";
-		else static if (is(T == wchar))
-			return "char";
-		else static if (is(T == dchar))
-			return "uint";
-		else static if (is(T == ubyte))
-			return "byte";
-		else static if (is(T == byte))
-			return "sbyte";
-		else static if (is(T == ushort))
-			return "ushort";
-		else static if (is(T == short))
-			return "short";
-		else static if (is(T == uint))
-			return "uint";
-		else static if (is(T == int))
-			return "int";
-		else static if (is(T == ulong))
-			return "ulong";
-		else static if (is(T == long))
-			return "long";
-		else
-			static assert(0, "Unsupported integral type " ~ T.stringof);
-	}
-	else static if (isFloatingPoint!T)
-	{
-		static if (is(T == float))
-			return "float";
-		else static if (is(T == double))
-			return "double";
-		else
-			static assert(0, "Unsupported floating point type " ~ T.stringof);
-	}
-	else static if (isSomeString!T)
-	{
-		return "string";
-	}
-	else static if (is(T : U[], U))
-	{
-		return monoTypeOf!(U, tc, true) ~ "[]";
-	}
-	else static if (is(T : U*, U))
-	{
-		return "ref " ~ monoTypeOf!(U, tc, true);
-	}
-	else static if (is(T == class))
-	{
-		return RenamedIdOf!T;
-	}
-	else static if (is(T == struct))
-	{
-		return RenamedIdOf!T;
-	}
-	else
-	{
-		static assert(0, "Unsupported type " ~ T.stringof);
-	}
-}
-
-// mono runtime (C-side) type mappings
-private string monoRtTypeOf(T, TypeContext tc, bool alreadyReffed = false)()
-{
-	static if (is(T == bool))
-	{
-		final switch(tc) with(TypeContext)
-		{
-			case FunctionList:
-				return "monoBoolF";
-			case Member:
-				return "monoBoolM";
-		}
-	}
-	else static if (is(T == void))
-	{
-		return "void";
-	}
-	else static if (is(T == enum))
-	{
-		return "int";
-	}
-	else static if (isIntegral!T)
-	{
-		static if (is(T == char))
-			return "byte";
-		else static if (is(T == wchar))
-			return "char";
-		else static if (is(T == dchar))
-			return "uint";
-		else static if (is(T == ubyte))
-			return "ubyte";
-		else static if (is(T == byte))
-			return "byte";
-		else static if (is(T == ushort))
-			return "ushort";
-		else static if (is(T == short))
-			return "short";
-		else static if (is(T == uint))
-			return "uint";
-		else static if (is(T == int))
-			return "int";
-		else static if (is(T == ulong))
-			return "ulong";
-		else static if (is(T == long))
-			return "long";
-		else
-			static assert(0, "Unsupported integral type " ~ T.stringof);
-	}
-	else static if (isFloatingPoint!T)
-	{
-		static if (is(T == float))
-			return "float";
-		else static if (is(T == double))
-			return "double";
-		else
-			static assert(0, "Unsupported floating point type " ~ T.stringof);
-	}
-	else static if (isSomeString!T)
-	{
-		return "MonoString*";
-	}
-	else static if (is(T : U[], U))
-	{
-		return "MonoArray*";
-	}
-	else static if (is(T : U*, U))
-	{
-		return "ref " ~ monoTypeOf!(U, tc, true);
-	}
-	else static if (is(T == class))
-	{
-		return "MonoObject*";
-	}
-	else static if (is(T == struct))
-	{
-		return "MonoObject*";
-	}
-	else
-	{
-		static assert(0, "Unsupported type " ~ T.stringof);
-	}
 }

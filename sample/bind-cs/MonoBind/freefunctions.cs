@@ -14,7 +14,7 @@ namespace MonoBind {
 		}
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		private extern static void monobound_D13freefunctions19renamedboundSimple0FZv ();
-		static void renamedboundSimple0 ()
+		static void renamedSimple0 ()
 		{
 			monobound_D13freefunctions19renamedboundSimple0FZv();
 		}

@@ -25,7 +25,8 @@ void bindToMono_Freefunctions(Mono* monoInstance)
 	monoInstance.addInternalCall("monobound_D13freefunctions19renamedboundSimple0FZv", &monobound_D13freefunctions19renamedboundSimple0FZv);
 	extern(C) int monobound_D13freefunctions19boundSimpleOverloadFiZi(int a) nothrow
 	{try{
-			return freefunctions.boundSimpleOverload(a);
+			int __monobound_retval = MonoboundTypeInfo!(int, BoundTypeContext.FunctionList).wrapForMono(freefunctions.boundSimpleOverload(a));
+			return __monobound_retval;
 		}
 		catch(Throwable t)
 		{
@@ -34,7 +35,8 @@ void bindToMono_Freefunctions(Mono* monoInstance)
 	monoInstance.addInternalCall("monobound_D13freefunctions19boundSimpleOverloadFiZi", &monobound_D13freefunctions19boundSimpleOverloadFiZi);
 	extern(C) float monobound_D13freefunctions19boundSimpleOverloadFfZf(float a) nothrow
 	{try{
-			return freefunctions.boundSimpleOverload(a);
+			float __monobound_retval = MonoboundTypeInfo!(float, BoundTypeContext.FunctionList).wrapForMono(freefunctions.boundSimpleOverload(a));
+			return __monobound_retval;
 		}
 		catch(Throwable t)
 		{

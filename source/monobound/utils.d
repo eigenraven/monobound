@@ -29,8 +29,11 @@
 module monobound.utils;
 
 import derelict.mono.mono;
+public import monobound.attributes;
 public import std.string;
 import core.stdc.string;
+import std.meta, std.traits;
+import monobound.runtime : Mono;
 
 /// Converts a Mono C string to a D string and frees the Mono object.
 string monoOwnedCStrToD(const(char)* str) nothrow @trusted
@@ -73,5 +76,258 @@ struct MonoPtr(T)
 	~this()
 	{
 		mono_free(cast(void*) ptr);
+	}
+}
+
+enum BoundTypeContext
+{
+	FunctionList,
+	Member
+}
+
+private alias PrimitiveTypes = AliasSeq!(void, char, wchar, dchar, byte, short,
+		int, long, ubyte, ushort, uint, ulong, float, double);
+
+/// Either the identifier of T, or, if it has one, the renamed variant as done by the @MonoBind UDA.
+template RenamedIdOf(alias T)
+{
+	private enum string xid = __traits(identifier, T);
+	private alias udas = getUDAs!(T, MonoBind);
+	static if(udas.length > 0 && __traits(compiles, (){string a = udas[0].rename;}))
+	{
+		private enum string rid = udas[0].rename;
+		enum string RenamedIdOf = rid.length ? rid : xid;
+	}
+	else
+	{
+		enum string RenamedIdOf = xid;
+	}
+}
+
+/// Type information for T regarding D<-->Mono runtime interactions.
+template MonoboundTypeInfo(T, BoundTypeContext Tctx, bool alreadyReffed = false)
+{
+	/// If true, this type doesn't require special marshalling code to pass between the runtimes.
+	enum bool isPrimitive = (staticIndexOf!(T, PrimitiveTypes) > -1);
+	/// The corresponding C#/other .NET language type name.
+	enum string csTypeName = csTypeName_impl();
+	/// The D type name that corresponds to the native (C api) type as used by the runtime to represent objects of this kind.
+	enum string drtTypeName = drtTypeName_impl();
+	/// The D type corresponding to drtTypeName
+	mixin("alias DrtType = " ~ drtTypeName ~ ";");
+
+	static if (!is(T == void))
+	{
+
+		/// Unboxes the value from the Mono representation.
+		T unwrapToD()(DrtType wrapped)
+		{
+			static if (isPrimitive)
+				return cast(T)(wrapped);
+			else static if (is(T == bool))
+				return (wrapped != 0);
+			else static if (is(T == enum))
+				return cast(T)(wrapped);
+			else
+				static assert(0, "Unsupported type to unwrap from Mono.");
+		}
+
+		/// Boxes the value for the Mono runtime.
+		DrtType wrapForMono()(T rawValue)
+		{
+			static if (isPrimitive)
+				return cast(DrtType)(rawValue);
+			else static if (is(T == bool))
+			{
+				final switch (Tctx) with (BoundTypeContext)
+				{
+				case FunctionList:
+					return rawValue ? monoBoolF(-1) : monoBoolF(0);
+				case Member:
+					return rawValue ? monoBoolM(1) : monoBoolF(0);
+				}
+			}
+			else static if (is(T == enum))
+				return cast(DrtType) rawValue;
+			else
+				static assert(0, "Unsupported type to wrap for Mono.");
+		}
+
+		/// Manages the GC interactions/reference count - call when object enters a native context.
+		void beginUse(Mono* rt, T rawValue)
+		{
+			//
+		}
+
+		/// Call at the end of the scope where beginUse was called.
+		void endUse(Mono* rt, T rawValue)
+		{
+			//
+		}
+
+	}
+
+	private string csTypeName_impl()
+	{
+		static if (is(T == bool))
+		{
+			final switch (Tctx) with (BoundTypeContext)
+			{
+			case FunctionList:
+				return "bool";
+			case Member:
+				return "byte";
+			}
+		}
+		else static if (is(T == void))
+		{
+			return "void";
+		}
+		else static if (is(T == enum))
+		{
+			return "int";
+		}
+		else static if (isIntegral!T)
+		{
+			static if (is(T == char))
+				return "byte";
+			else static if (is(T == wchar))
+				return "char";
+			else static if (is(T == dchar))
+				return "uint";
+			else static if (is(T == ubyte))
+				return "byte";
+			else static if (is(T == byte))
+				return "sbyte";
+			else static if (is(T == ushort))
+				return "ushort";
+			else static if (is(T == short))
+				return "short";
+			else static if (is(T == uint))
+				return "uint";
+			else static if (is(T == int))
+				return "int";
+			else static if (is(T == ulong))
+				return "ulong";
+			else static if (is(T == long))
+				return "long";
+			else
+				static assert(0, "Unsupported integral type " ~ T.stringof);
+		}
+		else static if (isFloatingPoint!T)
+		{
+			static if (is(T == float))
+				return "float";
+			else static if (is(T == double))
+				return "double";
+			else
+				static assert(0, "Unsupported floating point type " ~ T.stringof);
+		}
+		else static if (isSomeString!T)
+		{
+			return "string";
+		}
+		else static if (is(T : U[], U))
+		{
+			return MonoboundTypeInfo!(U, Tctx, true) ~ "[]";
+		}
+		else static if (is(T : U*, U))
+		{
+			return (alreadyReffed ? "" : "ref ") ~ monoTypeOf!(U, Tctx, true);
+		}
+		else static if (is(T == class))
+		{
+			return RenamedIdOf!T;
+		}
+		else static if (is(T == struct))
+		{
+			return RenamedIdOf!T;
+		}
+		else
+		{
+			static assert(0, "Unsupported type " ~ T.stringof);
+		}
+	}
+
+	private string drtTypeName_impl()
+	{
+		static if (is(T == bool))
+		{
+			final switch (tc) with (TypeContext)
+			{
+			case FunctionList:
+				return "monoBoolF";
+			case Member:
+				return "monoBoolM";
+			}
+		}
+		else static if (is(T == void))
+		{
+			return "void";
+		}
+		else static if (is(T == enum))
+		{
+			return "int";
+		}
+		else static if (isIntegral!T)
+		{
+			static if (is(T == char))
+				return "byte";
+			else static if (is(T == wchar))
+				return "char";
+			else static if (is(T == dchar))
+				return "uint";
+			else static if (is(T == ubyte))
+				return "ubyte";
+			else static if (is(T == byte))
+				return "byte";
+			else static if (is(T == ushort))
+				return "ushort";
+			else static if (is(T == short))
+				return "short";
+			else static if (is(T == uint))
+				return "uint";
+			else static if (is(T == int))
+				return "int";
+			else static if (is(T == ulong))
+				return "ulong";
+			else static if (is(T == long))
+				return "long";
+			else
+				static assert(0, "Unsupported integral type " ~ T.stringof);
+		}
+		else static if (isFloatingPoint!T)
+		{
+			static if (is(T == float))
+				return "float";
+			else static if (is(T == double))
+				return "double";
+			else
+				static assert(0, "Unsupported floating point type " ~ T.stringof);
+		}
+		else static if (isSomeString!T)
+		{
+			return "MonoString*";
+		}
+		else static if (is(T : U[], U))
+		{
+			return "MonoArray*";
+		}
+		else static if (is(T : U*, U))
+		{
+			return "MonoObject*";
+		}
+		else static if (is(T == class))
+		{
+			return "MonoObject*";
+		}
+		else static if (is(T == struct))
+		{
+			return "MonoObject*";
+		}
+		else
+		{
+			static assert(0, "Unsupported type " ~ T.stringof);
+		}
 	}
 }
