@@ -1,6 +1,6 @@
-# MonoD
+# MonoBounD
 
-[![Build Status](https://travis-ci.org/kubasz/monod.svg?branch=master)](https://travis-ci.org/kubasz/monod)
+[![Build Status](https://travis-ci.org/kubasz/monobound.svg?branch=master)](https://travis-ci.org/kubasz/monobound)
 
 The goal of this project is to provide a two-way, mostly automated binding between the D programming language and the Common Language Runtime infrastructure implemented by the Mono project.
 
