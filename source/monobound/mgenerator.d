@@ -220,13 +220,13 @@ GeneratedCode bindModule(alias M, bool autoBindAll = false)()
 }
 
 private enum string DPrelude = `/// Automatically generated D->Mono bindings for module @MOD@
-module monobind.@IDMOD@;
+module monobind.@MOD@;
 import monobound.utils;
 import monobound.runtime;
 static import @MOD@;
 
 /// Binds @MOD@ internal calls to the Mono runtime.
-void bindToMono_@IDMOD@(Mono* monoInstance)
+void bindToMono_@IDMOD@()
 {
 `;
 private enum string DEpilogue = `
@@ -302,17 +302,17 @@ private void bindFunction(alias F)(GeneratedCode* C)
 	// C# stub
 
 	C.cs("[MethodImplAttribute(MethodImplOptions.InternalCall)]");
-	C.cs("private extern static %s %s (%-(%s, %));".format(CSReturn, CSMName, CSArgs));
+	C.cs(format!"private extern static %s %s (%-(%s, %));"(CSReturn, CSMName, CSArgs));
 
-	C.cs("static %s %s (%-(%s, %))".format(CSReturn, CSName, CSArgs));
+	C.cs(format!"public static %s %s (%-(%s, %))"(CSReturn, CSName, CSArgs));
 	C.cs("{", 1);
-	C.cs("%s%s(%-(%s, %));".format(is(RetT == void) ? "" : "return ", CSMName, only(PNames)));
+	C.cs(format!"%s%s(%-(%s, %));"(is(RetT == void) ? "" : "return ", CSMName, only(PNames)));
 	C.cs("}", -1);
 
 	// D function
 	string RTRet = RetTi.drtTypeName;
 	string FQN = fullyQualifiedName!F;
-	C.d("extern(C) %s %s(%-(%s, %)) nothrow".format(RTRet, CSMName, RTArgs));
+	C.d(format!"extern(C) %s %s(%-(%s, %)) nothrow"(RTRet, CSMName, RTArgs));
 	C.d("{try{", 2);
 	// parameter setup
 	string argsStr;
@@ -325,10 +325,10 @@ private void bindFunction(alias F)(GeneratedCode* C)
 		}
 		else
 		{
-			argsStr ~= "MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).unwrapToD(%s), ".format(
+			argsStr ~= format!"MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).unwrapToD(%s), "(
 					fullyQualifiedName!argt, PNames[argi]);
-			C.d("MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).beginUse(monoInstance, %s);".format(
-					PNames[argi]));
+			C.d(format!"MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).beginUse(%s);"(
+					fullyQualifiedName!argt, PNames[argi]));
 		}
 	}
 
@@ -339,12 +339,12 @@ private void bindFunction(alias F)(GeneratedCode* C)
 	// call and return boxing
 	static if (ReturnsValue)
 	{
-		C.d("%s __monobound_retval = MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).wrapForMono(%s(%s));".format(
+		C.d(format!"%s __monobound_retval = MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).wrapForMono(%s(%s));"(
 				RetTi.drtTypeName, fullyQualifiedName!RetT, FQN, argsStr));
 	}
 	else
 	{
-		C.d("%s(%s);".format(FQN, argsStr));
+		C.d(format!"%s(%s);"(FQN, argsStr));
 	}
 
 	// parameter destruction
@@ -353,8 +353,9 @@ private void bindFunction(alias F)(GeneratedCode* C)
 		alias Ti = MonoboundTypeInfo!(argt, BoundTypeContext.FunctionList);
 		static if (!Ti.isPrimitive)
 		{
-			C.d("MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).endUse(monoInstance, %s);".format(
-					PNames[argi]));
+			C.d(format!"MonoboundTypeInfo!(%s, BoundTypeContext.FunctionList).endUse(%s);"(
+				fullyQualifiedName!argt,
+				PNames[argi]));
 		}
 	}
 
@@ -373,5 +374,5 @@ private void bindFunction(alias F)(GeneratedCode* C)
 		C.d("return " ~ RTRet ~ ".init;");
 	}
 	C.d("}}", -2);
-	C.d(`monoInstance.addInternalCall("%s", &%s);`.format(CSMName, CSMName));
+	C.d(format!`Mono.addInternalCall("%s", &%s);`("MonoBind." ~ C.camelModuleName ~ "::" ~ CSMName, CSMName));
 }

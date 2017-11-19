@@ -53,7 +53,7 @@ class ImageLoadException : Exception
 /// Wrapper for a Mono assembly, container for Images that contain the code.
 struct Assembly
 {
-	private MonoAssembly* mAssembly;
+	MonoAssembly* mAssembly;
 	@disable this();
 
 	/// Closes the assembly, releasing it to the Mono runtime to be deleted when no longer needed.
@@ -173,7 +173,7 @@ struct Assembly
 	string getName() @trusted nothrow
 	{
 		MonoAssemblyName* n = mono_assembly_get_name(mAssembly);
-		return mono_assembly_name_get_name(n).monoOwnedCStrToD();
+		return mono_assembly_name_get_name(n).fromStringz().idup;
 	}
 
 	static struct Version
@@ -194,7 +194,7 @@ struct Assembly
 	string getCulture() @trusted nothrow
 	{
 		MonoAssemblyName* n = mono_assembly_get_name(mAssembly);
-		return mono_assembly_name_get_culture(n).monoOwnedCStrToD();
+		return mono_assembly_name_get_culture(n).fromStringz().idup;
 	}
 
 	/// Returns: the image associated with the assembly.
@@ -209,7 +209,7 @@ struct Assembly
 /// Wrapper around MonoImage
 struct CodeImage
 {
-	private MonoImage* mImage;
+	MonoImage* mImage;
 	@disable this();
 
 	/// Closes the image.

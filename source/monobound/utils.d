@@ -28,11 +28,12 @@
  */
 module monobound.utils;
 
+public import derelict.mono.types;
 import derelict.mono.mono;
 public import monobound.attributes;
 public import std.string;
 import core.stdc.string;
-import std.meta, std.traits;
+import std.array, std.meta, std.traits, std.utf;
 import monobound.runtime : Mono;
 
 /// Converts a Mono C string to a D string and frees the Mono object.
@@ -93,7 +94,9 @@ template RenamedIdOf(alias T)
 {
 	private enum string xid = __traits(identifier, T);
 	private alias udas = getUDAs!(T, MonoBind);
-	static if(udas.length > 0 && __traits(compiles, (){string a = udas[0].rename;}))
+	static if (udas.length > 0 && __traits(compiles, () {
+			string a = udas[0].rename;
+		}))
 	{
 		private enum string rid = udas[0].rename;
 		enum string RenamedIdOf = rid.length ? rid : xid;
@@ -128,6 +131,20 @@ template MonoboundTypeInfo(T, BoundTypeContext Tctx, bool alreadyReffed = false)
 				return (wrapped != 0);
 			else static if (is(T == enum))
 				return cast(T)(wrapped);
+			else static if (isSomeString!T)
+			{
+				const(wchar)[] slice = mono_string_chars(wrapped)[0 .. mono_string_length(wrapped)];
+				static if (is(T == immutable(char)[]) || is(T == const(char)[]) || is(T == char[]))
+					return cast(T)(slice.byUTF!char.array);
+				else static if (is(T == immutable(wchar)[])
+						|| is(T == const(wchar)[]) || is(T == wchar[]))
+					return cast(T)(slice.byUTF!wchar.array);
+				else static if (is(T == immutable(dchar)[])
+						|| is(T == const(dchar)[]) || is(T == dchar[]))
+					return cast(T)(slice.byUTF!dchar.array);
+				else
+					static assert(0, "Unsupported string type to unwrap from Mono.");
+			}
 			else
 				static assert(0, "Unsupported type to unwrap from Mono.");
 		}
@@ -149,18 +166,34 @@ template MonoboundTypeInfo(T, BoundTypeContext Tctx, bool alreadyReffed = false)
 			}
 			else static if (is(T == enum))
 				return cast(DrtType) rawValue;
+			else static if (isSomeString!T)
+			{
+				static if (is(T == immutable(char)[]) || is(T == const(char)[]) || is(T == char[]))
+					return mono_string_new_len(Mono.getDomain,
+							cast(const(char)*) T.ptr, cast(uint) T.length);
+				else static if (is(T == immutable(wchar)[])
+						|| is(T == const(wchar)[]) || is(T == wchar[]))
+					return mono_string_new_utf16(Mono.getDomain,
+							cast(const(mono_unichar2)*) T.ptr, cast(uint) T.length);
+				else static if (is(T == immutable(dchar)[])
+						|| is(T == const(dchar)[]) || is(T == dchar[]))
+					return mono_string_new_utf32(Mono.getDomain,
+							cast(const(mono_unichar4)*) T.ptr, cast(uint) T.length);
+				else
+					static assert(0, "Unsupported string type to wrap for Mono.");
+			}
 			else
 				static assert(0, "Unsupported type to wrap for Mono.");
 		}
 
 		/// Manages the GC interactions/reference count - call when object enters a native context.
-		void beginUse(Mono* rt, T rawValue)
+		void beginUse(DrtType rawValue)
 		{
 			//
 		}
 
 		/// Call at the end of the scope where beginUse was called.
-		void endUse(Mono* rt, T rawValue)
+		void endUse(DrtType rawValue)
 		{
 			//
 		}
